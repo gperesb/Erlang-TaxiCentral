@@ -12,8 +12,8 @@ solicitar_taxi(Viajero,Origen, Destino) ->
 cancelar_taxi(Viajero) ->
     centralPID ! {cancelarTaxi, Viajero, self()},
     receive
-        {cancelado, Nombre, IdViaje, Destino }->
-            io:format("Cancelado viaje de: ~p, con Id: ~p, con Destino a: ~p~n", [Nombre, IdViaje, Destino]);
+        {cancelado, IdViaje }->
+            io:format("Cancelado viaje con Id: ~p~n", [ IdViaje]);
         {negado} ->
             io:format("Lamentablemente no se pudo realizar la accion~n")
     end.

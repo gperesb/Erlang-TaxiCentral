@@ -8,19 +8,58 @@ abre_central(Ubicacion) ->
     register(centralPID, Pid),
     io:format("Ubicación de la central: ~p~n", [Ubicacion]).
 
-% No Implementados >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>.
+% Implementados >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>.
 
 cierra_central() ->
-    centralPID ! {}.
+    centralPID ! {cerrar}.
 
 lista_taxis()->
-    centralPID ! taxis_activos. % Envía mensaje a central para obtener la lista de taxis
+    centralPID ! {taxis_activos, self()}, % Envía mensaje a central para obtener la lista de taxis
+    receive 
+        {taxisActivos, ListaTaxis} ->
+            io:format("ListaTaxis de taxis activos:\nNo | IdTaxi | PID\n"),
+            lists:foreach(
+                fun({No, {IdTaxi, PID}}) ->
+                    io:format("~2w | ~6w | ~p~n", [No, IdTaxi, PID])
+                end,
+                lists:zip(lists:seq(1, length(ListaTaxis)), ListaTaxis)
+            );
+            _ ->
+                io:format("Error al obtener la información de taxis~n")
+            end.
+    
+
 
 lista_viajeros()->
-    centralPID ! viajeros_actuales. % Envía mensaje a central para obtener la lista de viajeros
+    centralPID ! {viajes_atendidos, self()}, % Envía mensaje a central para obtener la lista de viajeros
+    receive 
+            {viajesIniciados, Viajes}->
+                io:format("Valores de Viajes~n: No | Viajero | IdTaxi | Inicio | Final~n"),
+                lists:foreach(fun({No, _, Viajero, IdTaxi, Inicio, Final}) ->
+                    io:format("~3w | ~7w | ~8w | ~8w | ~8w~n",
+                            [No, Viajero, IdTaxi, Inicio, Final])
+                    end,
+                    Viajes
+                );
+            _->
+                io:format("Error al obtener la Informacion de viajes activos")
+        end.
 
 viajes_completados()->
-    centralPID ! viajes_atendidos. % Envía mensaje a central para obtener los viajes completados
+    centralPID ! {viajes_completados, self()}, % Envía mensaje a central para obtener los viajes completados
+        receive 
+            {viajesTerminados, Viajes}->
+                io:format("Valores de Viajes~n: No | Viajero | IdTaxi | Inicio | Final~n"),
+                lists:foreach(fun({No, _, Viajero, IdTaxi, Inicio, Final, _}) ->
+                    io:format("~4w | ~7w | ~7w | ~7w | ~8w~n",
+                            [No, Viajero, IdTaxi, Inicio, Final])
+                    end,
+                    Viajes
+                );
+            _->
+                io:format("Error al obtener la Informacion de viajes activos")
+        end.
+
 %% >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>.
 
 
@@ -151,9 +190,27 @@ centralMain(Ubicacion,ListaViajes, ListaTaxis, Contador) ->
                     De ! {negado},                                                                          %%Si no hubo cambios, negar
                     centralMain(Ubicacion, ListaViajes, ListaTaxis, Contador);
                 (_) -> 
+                    De ! {cancelado, ViajeP},
                     ViajeP ! {terminoDeViajeManual},                                                        %%Si huno camnbios, terminar el proceso de viaje
                     centralMain(Ubicacion, NewList, ListaTaxis, Contador)
-            end
+            end;
+        %%-------------------------------Cerrar la Terminal--------------------------------------------------
+        {cerrar} ->
+            io:format("Se ha finalizado el trabajo"),
+            exit(normal);                                                                                    %%Crea que si se linkea el proceso, no hay necesidad de otras operaciones
+        %%----------------------------------------Obtener Listas de diferentes tipos
+        {taxis_activos,  De}->
+            De ! {taxisActivos, ListaTaxis},
+            centralMain(Ubicacion, ListaViajes, ListaTaxis, Contador);
+        {viajes_atendidos, De} ->
+            ViajesIniciados = [V || V = {_, _, _, _, _, _, iniciado} <- ListaViajes],              %Filtros para cada tipo de situacion
+            io:format("InformacionNeviada\n"),
+            De ! {viajesIniciados, ViajesIniciados},
+            centralMain(Ubicacion, ListaViajes, ListaTaxis, Contador);
+        {viajes_completados, De}->
+            ViajesTerminados = [V || V = {_, _, _, _, _, _, terminado} <- ListaViajes],
+            De ! {viajesTerminados, ViajesTerminados},
+            centralMain(Ubicacion, ListaViajes, ListaTaxis, Contador)
     end.
             
 
