@@ -8,7 +8,7 @@ abre_central(Ubicacion) ->
     register(centralPID, Pid),
     io:format("Ubicación de la central: ~p~n", [Ubicacion]).
 
-% falta cierra_central
+% No Implementados >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>.
 
 cierra_central() ->
     centralPID ! {}.
@@ -21,27 +21,37 @@ lista_viajeros()->
 
 viajes_completados()->
     centralPID ! viajes_atendidos. % Envía mensaje a central para obtener los viajes completados
+%% >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>.
 
 
-
+%%Formato de Base de Datos
 %Ubicacion, Lista de viajes, Lista de taxis, Contador
-%                              Listas de Taxis -> {IdTaxi, PID}
+%       
+%                           Listas de Taxis -> {IdTaxi, PID}
+%
+%
+%
 %           Lista de Viajes -> {No, Viaje<PID>, Viajero, IdTaxi, Inicio, Final, Estado}
 %                                                                               Estado ->{espera, iniciado, terminado}
+
+
 centralMain(Ubicacion,ListaViajes, ListaTaxis, Contador) ->
+
     receive
+    %%------------------------Proceso de Registro de Taxi----------------------------------------
         {registrarTaxi, ID, PID}->
             io:format("Registrado ~p~n", [ID]),
             centralMain(Ubicacion, ListaViajes, [{ID, PID}| ListaTaxis], Contador);
+    %%----------------------Proceso de Eliminacion de Taxis-------------------------------------------
         {eliminarTaxi, ID} ->
-            case searchTaxi(id, ID, ListaTaxis) of
+            case searchTaxi(id, ID, ListaTaxis) of     %%Existe?
                 nulo ->
                     io:format("Taxi no encontrado: ~p~n", [ID]),
                     centralMain(Ubicacion, ListaViajes, ListaTaxis, Contador);
                 PID_Taxi->
                     PID_Taxi ! {informacion},
                     receive 
-                        {info, Estado, Ubicacion}->
+                        {info, Estado, Ubicacion}-> %%Estado del taxi
                             case Estado of
                                 libre -> 
                                     NuevaListaTaxis = eliminarTaxi(ID, ListaTaxis),
@@ -54,28 +64,31 @@ centralMain(Ubicacion,ListaViajes, ListaTaxis, Contador) ->
                     end
                 
             end;
+        %%-------------------------------Iniciar Viaje------------------------------------
         {servicioIniciado, IdTaxi} ->
             IniciarPorTaxi = 
-                fun({No, ViajeP, Viajero, IdTaxi0, Inicio, Final, espera}) -> 
+                fun({No, ViajeP, Viajero, IdTaxi0, Inicio, Final, espera}) ->    %%Query por asi decirlo -> update estado where =IdTaxi= to iniciado
+                                                                                %% Select el ultimo editado
                     case IdTaxi =:= IdTaxi0 of 
                         true-> {{No, ViajeP, Viajero, IdTaxi0, Inicio, Final, iniciado}, true};
                         false ->{ {No, ViajeP, Viajero, IdTaxi0, Inicio, Final, espera}, false}
                     end
                 end,
             case buscarViaje(IniciarPorTaxi, ListaViajes) of
-                {_,_,0} -> 
+                {_,_,0} ->                                                              %%Hubo algun cambio?
                     io:format("Registro de Taxi en espera Inexistente"),
                     centralMain(Ubicacion, ListaViajes, ListaTaxis, Contador);
-                {NuevaListaViajes, {No,ViajeP, _, _, Inicio, _, _}, _} -> 
+                {NuevaListaViajes, {No,ViajeP, _, _, Inicio, _, _}, _} ->               %%Si es que si, actualiza los procesos relacionados
                     io:format("Iniciando Viaje"),
                     searchTaxi(id, IdTaxi, ListaTaxis) ! {actualizar, ocupado, Inicio},
                     ViajeP ! {disponible, IdTaxi, No},
                     centralMain(Ubicacion, NuevaListaViajes, ListaTaxis, Contador)
             end;
+        %%------------------------Terminar Viaje---------------------------------------------------------
         {servicioCompletado, IdTaxi}->
             TerminarPorTaxi = 
-                fun({No, ViajeP, Viajero, IdTaxi0, Inicio, Final, iniciado}) -> 
-                    case IdTaxi =:= IdTaxi0 of 
+                fun({No, ViajeP, Viajero, IdTaxi0, Inicio, Final, iniciado}) ->                %%Cambia donde sea el mismo taxi y este iniciado a terminado 
+                    case IdTaxi =:= IdTaxi0 of                                                 %%Regresa la cantidad de resgirtros cambiados
                         true-> {{No, ViajeP, Viajero, IdTaxi0, Inicio, Final, terminado}, true};
                         false ->{ {No, ViajeP, Viajero, IdTaxi0, Inicio, Final, iniciado}, false}
                     end
@@ -86,64 +99,78 @@ centralMain(Ubicacion,ListaViajes, ListaTaxis, Contador) ->
                     centralMain(Ubicacion, ListaViajes, ListaTaxis, Contador);
                 {NuevaListaViajes, {_,ViajeP,_,_,_,Fin,_}, _} -> 
                     io:format("Terminando Viaje"),
-                    searchTaxi(id, IdTaxi, ListaTaxis) ! {actualizar, libre, Fin},
+                    searchTaxi(id, IdTaxi, ListaTaxis) ! {actualizar, libre, Fin},            %%Actualizar los procesos
                     ViajeP ! {terminoDeViaje},
                     centralMain(Ubicacion, NuevaListaViajes, ListaTaxis, Contador),
                     io:format("Viaje Terminado")
             end;
+        %%----------------------------------Consultar el estado del Taxi--------------------------------
         {consultarTaxi, IdTaxi, De}->
             io:format("Esperando información del taxi, PID: ~p~n", [self()]), 
-            case searchTaxi(id, IdTaxi, ListaTaxis) of
+            case searchTaxi(id, IdTaxi, ListaTaxis) of                               %%Verifica su existencia
                 nulo -> 
                     De ! {error};
                 PID ->
-                    PID ! {informacion},
+                    PID ! {informacion},                                               %%Pide la informacion
                     timer:sleep(200),
                     receive
-                        {info, Estado, Ubicacion} ->
+                        {info, Estado, Ubicacion} ->                                    
                             io:format("InfoRecibida"),
-                            De ! {estado, Estado, Ubicacion};
+                            De ! {estado, Estado, Ubicacion};                             %%Regresa la informacion
                         Otros ->
                             io:format("Otro mensaje recibido: ~p~n", [Otros]),
-                             list_to_tuple(lists:map(fun(A) -> io:format("Valor: ~p~n", [A]) end, tuple_to_list(Otros)))
+                             list_to_tuple(lists:map(fun(A) -> io:format("Valor: ~p~n", [A]) end, tuple_to_list(Otros)))  %%Verificacion de error por no obtener resultado esperado
                         after 2000 ->
                             De ! {estado, no_responde, undefined}
                     end
             end,
             centralMain(Ubicacion, ListaViajes, ListaTaxis, Contador);
-
+        %% ----------------------------------Solicitacion de Taxi--------------------------------------------
         {solicitarTaxi, Viajero, Origen, Destino, ViajeP} -> 
-            case obtenerTaxi(Origen, ListaTaxis) of 
-                nulo -> 
-                    ViajeP ! {noDisponible},
+            case obtenerTaxi(Origen, ListaTaxis) of                 %%Buscar el mas cercano
+                nulo ->                                     
+                    ViajeP ! {noDisponible},                        %%Inexistente disponibilidad
                     centralMain(Ubicacion, ListaViajes, ListaTaxis, Contador);
-                IdTaxi -> 
-                    searchTaxi(id, IdTaxi, ListaTaxis) ! {solicitar, Viajero, Destino, IdTaxi},
+                IdTaxi ->                                           %%Existente
+                    searchTaxi(id, IdTaxi, ListaTaxis) ! {solicitar, Viajero, Destino, IdTaxi},             %Notificar a los procesos
                     Viaje = {Contador, ViajeP, Viajero, IdTaxi, Origen, Destino, espera},
                     centralMain(Ubicacion, [Viaje | ListaViajes], ListaTaxis, Contador +1)
             end;
+        %% ------------------------------------------Cancelacion de Taxi----------------------------------
         {cancelarTaxi, Viajero, De} ->
             TerminarPorViajero = 
-                fun({No, ViajeP, Viajero0, IdTaxi, Inicio, Final, espera}) -> 
-                    case Viajero =:= Viajero0 of 
+                fun({No, ViajeP, Viajero0, IdTaxi, Inicio, Final, espera}) ->                       %%Buscar el viaje que este en espera y cambiarlo a terminado
+                    case Viajero =:= Viajero0 of                                                    
                         true-> {{No, ViajeP, Viajero0, IdTaxi, Inicio, Final, terminado}, true};
                         false ->{ {No, ViajeP, Viajero0, IdTaxi, Inicio, Final, espera}, false}
                     end
                 end,
-            {NewList, {_,ViajeP,_,_,_,_,_}, Count} = buscarViaje(TerminarPorViajero,  ListaViajes),
+            {NewList, {_,ViajeP,_,_,_,_,_}, Count} = buscarViaje(TerminarPorViajero,  ListaViajes),         %%Obtener el PID de viaje 
             case Count  of
                 0 ->
-                    De ! {negado},
+                    De ! {negado},                                                                          %%Si no hubo cambios, negar
                     centralMain(Ubicacion, ListaViajes, ListaTaxis, Contador);
                 (_) -> 
-                    ViajeP ! {terminoDeViajeManual},
+                    ViajeP ! {terminoDeViajeManual},                                                        %%Si huno camnbios, terminar el proceso de viaje
                     centralMain(Ubicacion, NewList, ListaTaxis, Contador)
             end
     end.
             
 
-        
-%Busqueda de Taxi dependiendo de...
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%Funciones de Apoyo%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%
+%%%         ⠀⠀⣀⣤⣴⣶⣶⣦⣤⣀
+%%%      ⠀⢀⣴⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣦⡀
+%%%    ⠀⣼⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣧
+%%%   ⢸⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⡇
+%%%   ⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿
+%%%   ⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿
+%%%   ⢿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⡿
+%%%    ⠹⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⠏
+%%%      ⠙⢿⣿⣿⣿⣿⣿⣿⣿⣿⡿⠋
+%%%         ⠈⠻⣿⣿⣿⣿⠟⠁
+%%%             ⠈⠉⠁
+%Busqueda de Taxi dependiendo de su PID o su id
 searchTaxi(Key, Value, ListaTaxis) ->
     case Key of
         id ->
@@ -157,7 +184,7 @@ searchTaxi(Key, Value, ListaTaxis) ->
                 [] -> nulo
             end
     end.
-%crear lista eliminando item
+%crear lista eliminando un item especifico
 eliminarTaxi(ID, [{ID, PID} |Next])->
     PID ! {eliminar},
     eliminarTaxi(ID, Next);
@@ -170,7 +197,7 @@ eliminarTaxi(_, []) ->
 
 %%Funcion para obtener un taxi disponible.
 %Como es una funcion foldl se puede usar para llevar un acumulativo, por tanto 
-%se puede determinar que el acumulativo sea la menor distancia entre 2 objetos
+%se puede determinar que el acumulativo sea el elemento con la menor distancia entre 2 objetos
 
 
 obtenerTaxi(Posicion, ListaTaxis) ->
@@ -199,8 +226,6 @@ obtenerTaxi(Posicion, ListaTaxis) ->
 
 
 %%Funcion Para cambiar valores dependiendo de una funcion, y regresa el ultimo registro que se edito y un contador de cuantas veces se modifico
-
-%buscar viaje por taxi {No, Viaje<PID>, Viajero, IdTaxi, Inicio, Final, Estado}
 buscarViaje(Pred, Viajes) ->
     {LIST, ITEM, COUNT} = lists:foldl(
         fun(Viaje, {NewList, Acc, Count}) ->
