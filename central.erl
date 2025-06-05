@@ -47,12 +47,13 @@ viajes_completados()->
     centralPID ! {viajes_completados, self()}, % Envía mensaje a central para obtener los viajes completados
         receive 
             {viajesTerminados, Viajes}->
+                ViajesFiltrados = [V || V = {_, _, _, _, _, _, terminado} <- Viajes],
                 io:format("Valores de Viajes~n: No | Viajero | IdTaxi | Inicio | Final~n"),
                 lists:foreach(fun({No, _, Viajero, IdTaxi, Inicio, Final, _}) ->
                     io:format("~4w | ~7w | ~6w | ~7w | ~8w~n",
                             [No, Viajero, IdTaxi, Inicio, Final])
                     end,
-                    Viajes
+                    ViajesFiltrados
                 );
             _->
                 io:format("Error al obtener la Informacion de viajes activos")
@@ -90,7 +91,7 @@ centralMain(Ubicacion,ListaViajes, ListaTaxis, Contador) ->
                     receive 
                         {info, Estado, _}-> %%Estado del taxi
                             case Estado of
-                                libre -> 
+                                disponible -> 
                                     NuevaListaTaxis = eliminarTaxi(ID, ListaTaxis),
                                     io:format("Taxi eliminado: ~p~n", [ID]),
                                     centralMain(Ubicacion,ListaViajes, NuevaListaTaxis, Contador);
@@ -182,7 +183,7 @@ centralMain(Ubicacion,ListaViajes, ListaTaxis, Contador) ->
     TerminarPorViajero = 
         fun({No, ViajeP, Viajero0, IdTaxi, Inicio, Final, State}) ->                       %%Buscar el viaje que este en State y cambiarlo a terminado
             case Viajero =:= Viajero0 andalso State =:= espera of                                                    
-                true-> {{No, ViajeP, Viajero0, IdTaxi, Inicio, Final, terminado}, true};
+                true-> {{No, ViajeP, Viajero0, IdTaxi, Inicio, Final, cancelado}, true};
                 false ->{ {No, ViajeP, Viajero0, IdTaxi, Inicio, Final, State}, false}
             end
         end,
@@ -194,7 +195,7 @@ centralMain(Ubicacion,ListaViajes, ListaTaxis, Contador) ->
         (_) -> 
             De ! {cancelado, ViajeP},
             ViajeP ! {terminoDeViajeManual},                                                        %%Si hubo cambios, terminar el proceso de viaje
-            %% Actualizar el estado del taxi a disponible manteniendo su ubicación actual
+            %% Actualizar el estado del taxi a disponible
             case searchTaxi(id, IdTaxi, ListaTaxis) of
                 nulo -> ok;
                 PID_Taxi -> 

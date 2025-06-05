@@ -33,7 +33,7 @@ taxi_en_linea(Estado, Ubicacion) ->
     receive
         {informacion} ->
             centralPID ! {info, Estado, Ubicacion},
-            io:format("Mensaje enviado:  ~p~n", [{info, Estado, Ubicacion}]),    
+            io:format("Mensaje enviado a central con información actual del taxi a eliminar:  ~p~n", [{info, Estado, Ubicacion}]),    
             taxi_en_linea(Estado, Ubicacion);
         {eliminar} ->
             io:format("Taxi fuera de Linea~n");

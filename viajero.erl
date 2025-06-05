@@ -13,7 +13,7 @@ cancelar_taxi(Viajero) ->
         {cancelado, IdViaje }->
             io:format("Cancelado viaje con Id: ~p~n", [ IdViaje]);
         {negado} ->
-            io:format("Lamentablemente no se pudo realizar la accion~n")
+            io:format("Lamentablemente no pudo concretar la cancelación del viaje~n")
     end.
 %%Proceso Principal de viaje
 viaje()->
