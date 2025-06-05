@@ -273,11 +273,7 @@ eliminarTaxi(_, []) ->
 %se puede determinar que el acumulativo sea el elemento con la menor distancia entre 2 objetos
 
 
-
-
-%% Reemplaza la función obtenerTaxi con esta versión corregida:
 obtenerTaxi(Origen, ListaTaxis) ->
-    % Get all available taxis with their distances
     AvailableTaxis = lists:filtermap(
         fun({IdTaxi, PID}) ->
             PID ! {informacion},
@@ -298,7 +294,6 @@ obtenerTaxi(Origen, ListaTaxis) ->
         [] -> 
             nulo;
         _ ->
-            % Find the taxi with minimum distance using a proper comparison function
             {ClosestId, ClosestPID, _} = lists:foldl(
                 fun({Id, PID, Dist}, {_, _, MinDist} = Acc) when Dist < MinDist -> 
                         {Id, PID, Dist};
