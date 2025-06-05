@@ -1,7 +1,5 @@
-
-%% filepath: c:\temp\compu\Erlang\Proyect\central.erl
 -module(central).
--export([abre_central/1, cierra_central/0, lista_taxis/0, lista_viajeros/0, viajes_completados/0, centralMain/4]).
+-export([abre_central/1, cierra_central/0, lista_taxis/0, lista_viajeros/0, viajes_completados/0, centralMain/4, calcularDistancia/2]).
 
 abre_central(Ubicacion) ->
     Pid = spawn(central, centralMain, [Ubicacion, [], [], 1]), % Crea el proceso de la central con ubicación, listas vacías y contador inicial
@@ -178,24 +176,40 @@ centralMain(Ubicacion,ListaViajes, ListaTaxis, Contador) ->
                     centralMain(Ubicacion, [Viaje | ListaViajes], ListaTaxis, Contador +1)
             end;
         %% ------------------------------------------Cancelacion de Taxi----------------------------------
-        {cancelarTaxi, Viajero, De} ->
-            TerminarPorViajero = 
-                fun({No, ViajeP, Viajero0, IdTaxi, Inicio, Final, State}) ->                       %%Buscar el viaje que este en State y cambiarlo a terminado
-                    case Viajero =:= Viajero0 andalso State =:= espera of                                                    
-                        true-> {{No, ViajeP, Viajero0, IdTaxi, Inicio, Final, terminado}, true};
-                        false ->{ {No, ViajeP, Viajero0, IdTaxi, Inicio, Final, State}, false}
+
+%% ------------------------------------------Cancelacion de Taxi----------------------------------
+{cancelarTaxi, Viajero, De} ->
+    TerminarPorViajero = 
+        fun({No, ViajeP, Viajero0, IdTaxi, Inicio, Final, State}) ->                       %%Buscar el viaje que este en State y cambiarlo a terminado
+            case Viajero =:= Viajero0 andalso State =:= espera of                                                    
+                true-> {{No, ViajeP, Viajero0, IdTaxi, Inicio, Final, terminado}, true};
+                false ->{ {No, ViajeP, Viajero0, IdTaxi, Inicio, Final, State}, false}
+            end
+        end,
+    {NewList, {_,ViajeP,_,IdTaxi,_,_,_}, Count} = buscarViaje(TerminarPorViajero,  ListaViajes),         %%Obtener el PID de viaje 
+    case Count  of
+        0 ->
+            De ! {negado},                                                                          %%Si no hubo cambios, negar
+            centralMain(Ubicacion, ListaViajes, ListaTaxis, Contador);
+        (_) -> 
+            De ! {cancelado, ViajeP},
+            ViajeP ! {terminoDeViajeManual},                                                        %%Si hubo cambios, terminar el proceso de viaje
+            %% Actualizar el estado del taxi a disponible manteniendo su ubicación actual
+            case searchTaxi(id, IdTaxi, ListaTaxis) of
+                nulo -> ok;
+                PID_Taxi -> 
+                    PID_Taxi ! {informacion},
+                    receive
+                        {info, _, TaxiPos} ->
+                            PID_Taxi ! {actualizar, disponible, TaxiPos};
+                        _ ->
+                            ok
+                    after 1000 ->
+                        ok
                     end
-                end,
-            {NewList, {_,ViajeP,_,_,_,_,_}, Count} = buscarViaje(TerminarPorViajero,  ListaViajes),         %%Obtener el PID de viaje 
-            case Count  of
-                0 ->
-                    De ! {negado},                                                                          %%Si no hubo cambios, negar
-                    centralMain(Ubicacion, ListaViajes, ListaTaxis, Contador);
-                (_) -> 
-                    De ! {cancelado, ViajeP},
-                    ViajeP ! {terminoDeViajeManual},                                                        %%Si huno camnbios, terminar el proceso de viaje
-                    centralMain(Ubicacion, NewList, ListaTaxis, Contador)
-            end;
+            end,
+            centralMain(Ubicacion, NewList, ListaTaxis, Contador)
+    end;
         %%-------------------------------Cerrar la Terminal--------------------------------------------------
         {cerrar} ->
             io:format("Se ha finalizado el trabajo"),
@@ -259,30 +273,46 @@ eliminarTaxi(_, []) ->
 %se puede determinar que el acumulativo sea el elemento con la menor distancia entre 2 objetos
 
 
-obtenerTaxi(_, ListaTaxis) ->
-    lists:foldl(
-        fun({IdTaxi, PID}, Acc) ->
-            % Envia mensaje de consulta al taxi
+
+
+%% Reemplaza la función obtenerTaxi con esta versión corregida:
+obtenerTaxi(Origen, ListaTaxis) ->
+    % Get all available taxis with their distances
+    AvailableTaxis = lists:filtermap(
+        fun({IdTaxi, PID}) ->
             PID ! {informacion},
-            % mini funcion para esperar la respuesta del taxi
-            Res = receive
-                {info, Estado, _} ->
-                    Estado
-            after 1000 ->
-                    no_responde
-            end,
-            % Si la respuesta es "disponible", se "acumula" en la respuesta
-            io:format("Taxi ~p. Estado: ~p~n", [IdTaxi, Res]),
-            case Res of
-                disponible ->
-                    IdTaxi;
+            receive
+                {info, disponible, TaxiPos} ->
+                    Dist = calcularDistancia(Origen, TaxiPos),
+                    {true, {IdTaxi, PID, Dist}};
                 _ ->
-                    Acc
+                    false
+            after 1000 ->
+                false
             end
         end,
-        nulo,
         ListaTaxis
-    ).
+    ),
+    
+    case AvailableTaxis of
+        [] -> 
+            nulo;
+        _ ->
+            % Find the taxi with minimum distance using a proper comparison function
+            {ClosestId, ClosestPID, _} = lists:foldl(
+                fun({Id, PID, Dist}, {_, _, MinDist} = Acc) when Dist < MinDist -> 
+                        {Id, PID, Dist};
+                   (_, Acc) -> 
+                        Acc
+                end,
+                {nulo, undefined, infinity},
+                AvailableTaxis
+            ),
+            ClosestId
+    end.
+
+calcularDistancia({X1, Y1}, {X2, Y2}) ->
+    math:sqrt(math:pow(X2 - X1, 2) + math:pow(Y2 - Y1, 2)).
 
 
 %%Funcion Para cambiar valores dependiendo de una funcion, y regresa el ultimo registro que se edito y un contador de cuantas veces se modifico

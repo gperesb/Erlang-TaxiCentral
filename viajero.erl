@@ -1,5 +1,3 @@
-
-
 -module(viajero). % Define el módulo llamado 'viajero'
 -export([solicitar_taxi/3, cancelar_taxi/1, viaje/0]). % Exporta las funciones públicas
 

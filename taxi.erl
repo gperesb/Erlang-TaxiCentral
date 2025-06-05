@@ -1,8 +1,6 @@
-%%codigo creardo por Fatima, 
-%%Editado por Efrain
-
 -module(taxi). % Define el módulo llamado 'taxi'
 -export([registra_taxi/2, elimina_taxi/1, consultar_estado/1, servicio_iniciado/1, servicio_completado/1, taxi_en_linea/2]). % Exporta las funciones públicas
+
 %Funcion qu genera el proceso de Taxi
 registra_taxi(IdTaxi, UbicacionInicial) ->
     centralPID ! {registrarTaxi, IdTaxi, spawn(taxi, taxi_en_linea, [disponible, UbicacionInicial])}.
@@ -31,22 +29,20 @@ consultar_estado(IdTaxi) ->
     end.
 %%----------------------------------------------------------------------------------------------------------
 %%>>>>>>>>>>>>Estado -> {ocupado, libre}
-taxi_en_linea(Estado, Ubicacion) -> % Proceso principal de Taxi
+taxi_en_linea(Estado, Ubicacion) ->
     receive
-        {informacion} ->                                       %%Mandar infromacion a la central
+        {informacion} ->
             centralPID ! {info, Estado, Ubicacion},
             io:format("Mensaje enviado:  ~p~n", [{info, Estado, Ubicacion}]),    
             taxi_en_linea(Estado, Ubicacion);
-        {eliminar} ->                                       %%Matar el proceso
+        {eliminar} ->
             io:format("Taxi fuera de Linea~n");
-        {solicitar, Nombre, UbicacionDestino, IdTaxi} ->    %%Recibir una solicitud para iniciar viaje
-            io:format("Solicitud recibida:~n  Pasajero: ~p~n  Destino: ~p~n  IdTaxi: ~p~n", [Nombre, UbicacionDestino, IdTaxi]),
-            taxi_en_linea(Estado, Ubicacion);
-        {actualizar, NuevoE, NuevaU}->                      %%Actualizacion del estado que recibe de la central
+        {solicitar, Nombre, UbicacionDestino, IdTaxi} ->
+            io:format("Solicitud recibida:~n  Pasajero: ~p~n  Destino: ~p~n  IdTaxi: ~p~n", 
+                     [Nombre, UbicacionDestino, IdTaxi]),
+            taxi_en_linea(ocupado, Ubicacion); 
+        {actualizar, NuevoE, NuevaU} ->
             taxi_en_linea(NuevoE, NuevaU),
-            io:format("Actualizado~n")
+            io:format("Estado actualizado a ~p en ubicación ~p~n", [NuevoE, NuevaU])
     end.
             
-
-
-
