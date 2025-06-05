@@ -12,6 +12,8 @@ viajero:cancelar_taxi(juanin).
 central:lista_viajeros().
 central:lista_taxis().
 central:viajes_completados().
+viajero:solicitar_taxi(juan, {1,3},{2,3}).
+taxi:servicio_iniciado(kk).
 
 ```
  - 

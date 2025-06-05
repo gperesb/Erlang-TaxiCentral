@@ -35,7 +35,7 @@ lista_viajeros()->
     receive 
             {viajesIniciados, Viajes}->
                 io:format("Valores de Viajes~n: No | Viajero | IdTaxi | Inicio | Final~n"),
-                lists:foreach(fun({No, _, Viajero, IdTaxi, Inicio, Final}) ->
+                lists:foreach(fun({No, _, Viajero, IdTaxi, Inicio, Final,_}) ->
                     io:format("~3w | ~7w | ~8w | ~8w | ~8w~n",
                             [No, Viajero, IdTaxi, Inicio, Final])
                     end,
@@ -51,7 +51,7 @@ viajes_completados()->
             {viajesTerminados, Viajes}->
                 io:format("Valores de Viajes~n: No | Viajero | IdTaxi | Inicio | Final~n"),
                 lists:foreach(fun({No, _, Viajero, IdTaxi, Inicio, Final, _}) ->
-                    io:format("~4w | ~7w | ~7w | ~7w | ~8w~n",
+                    io:format("~4w | ~7w | ~6w | ~7w | ~8w~n",
                             [No, Viajero, IdTaxi, Inicio, Final])
                     end,
                     Viajes
@@ -90,7 +90,7 @@ centralMain(Ubicacion,ListaViajes, ListaTaxis, Contador) ->
                 PID_Taxi->
                     PID_Taxi ! {informacion},
                     receive 
-                        {info, Estado, Ubicacion}-> %%Estado del taxi
+                        {info, Estado, _}-> %%Estado del taxi
                             case Estado of
                                 libre -> 
                                     NuevaListaTaxis = eliminarTaxi(ID, ListaTaxis),
@@ -106,11 +106,11 @@ centralMain(Ubicacion,ListaViajes, ListaTaxis, Contador) ->
         %%-------------------------------Iniciar Viaje------------------------------------
         {servicioIniciado, IdTaxi} ->
             IniciarPorTaxi = 
-                fun({No, ViajeP, Viajero, IdTaxi0, Inicio, Final, espera}) ->    %%Query por asi decirlo -> update estado where =IdTaxi= to iniciado
+                fun({No, ViajeP, Viajero, IdTaxi0, Inicio, Final, State}) ->    %%Query por asi decirlo -> update estado where =IdTaxi= to iniciado
                                                                                 %% Select el ultimo editado
-                    case IdTaxi =:= IdTaxi0 of 
+                    case (IdTaxi =:= IdTaxi0 andalso State =:= espera) of 
                         true-> {{No, ViajeP, Viajero, IdTaxi0, Inicio, Final, iniciado}, true};
-                        false ->{ {No, ViajeP, Viajero, IdTaxi0, Inicio, Final, espera}, false}
+                        false ->{ {No, ViajeP, Viajero, IdTaxi0, Inicio, Final, State}, false}
                     end
                 end,
             case buscarViaje(IniciarPorTaxi, ListaViajes) of
@@ -126,10 +126,10 @@ centralMain(Ubicacion,ListaViajes, ListaTaxis, Contador) ->
         %%------------------------Terminar Viaje---------------------------------------------------------
         {servicioCompletado, IdTaxi}->
             TerminarPorTaxi = 
-                fun({No, ViajeP, Viajero, IdTaxi0, Inicio, Final, iniciado}) ->                %%Cambia donde sea el mismo taxi y este iniciado a terminado 
-                    case IdTaxi =:= IdTaxi0 of                                                 %%Regresa la cantidad de resgirtros cambiados
+                fun({No, ViajeP, Viajero, IdTaxi0, Inicio, Final, State}) ->                %%Cambia donde sea el mismo taxi y este iniciado a terminado 
+                    case IdTaxi =:= IdTaxi0 andalso State =:= iniciado of                                                 %%Regresa la cantidad de resgirtros cambiados
                         true-> {{No, ViajeP, Viajero, IdTaxi0, Inicio, Final, terminado}, true};
-                        false ->{ {No, ViajeP, Viajero, IdTaxi0, Inicio, Final, iniciado}, false}
+                        false ->{ {No, ViajeP, Viajero, IdTaxi0, Inicio, Final, State}, false}
                     end
                 end,
             case buscarViaje(TerminarPorTaxi, ListaViajes) of 
@@ -138,10 +138,10 @@ centralMain(Ubicacion,ListaViajes, ListaTaxis, Contador) ->
                     centralMain(Ubicacion, ListaViajes, ListaTaxis, Contador);
                 {NuevaListaViajes, {_,ViajeP,_,_,_,Fin,_}, _} -> 
                     io:format("Terminando Viaje"),
-                    searchTaxi(id, IdTaxi, ListaTaxis) ! {actualizar, libre, Fin},            %%Actualizar los procesos
+                    searchTaxi(id, IdTaxi, ListaTaxis) ! {actualizar, disponible, Fin},            %%Actualizar los procesos
                     ViajeP ! {terminoDeViaje},
-                    centralMain(Ubicacion, NuevaListaViajes, ListaTaxis, Contador),
-                    io:format("Viaje Terminado")
+                    io:format("Viaje Terminado"),
+                    centralMain(Ubicacion, NuevaListaViajes, ListaTaxis, Contador)
             end;
         %%----------------------------------Consultar el estado del Taxi--------------------------------
         {consultarTaxi, IdTaxi, De}->
@@ -151,14 +151,16 @@ centralMain(Ubicacion,ListaViajes, ListaTaxis, Contador) ->
                     De ! {error};
                 PID ->
                     PID ! {informacion},                                               %%Pide la informacion
-                    timer:sleep(200),
+                    io:format("Esperando Informacion~n"),
                     receive
-                        {info, Estado, Ubicacion} ->                                    
-                            io:format("InfoRecibida"),
-                            De ! {estado, Estado, Ubicacion};                             %%Regresa la informacion
+                        {nada}->
+                            io:format("Cayo en nada~n");
+                        {info, State, Pos} ->                                    
+                            io:format("InfoRecibida~n"),
+                            De ! {estado, State, Pos};                             %%Regresa la informacion
                         Otros ->
-                            io:format("Otro mensaje recibido: ~p~n", [Otros]),
-                             list_to_tuple(lists:map(fun(A) -> io:format("Valor: ~p~n", [A]) end, tuple_to_list(Otros)))  %%Verificacion de error por no obtener resultado esperado
+                            io:format("Otro mensaje recibido: ~p~n", [Otros])
+                             %%list_to_tuple(lists:map(fun(A) -> io:format("Valor: ~p~n", [A]) end, tuple_to_list(Otros)))  %%Verificacion de error por no obtener resultado esperado
                         after 2000 ->
                             De ! {estado, no_responde, undefined}
                     end
@@ -178,10 +180,10 @@ centralMain(Ubicacion,ListaViajes, ListaTaxis, Contador) ->
         %% ------------------------------------------Cancelacion de Taxi----------------------------------
         {cancelarTaxi, Viajero, De} ->
             TerminarPorViajero = 
-                fun({No, ViajeP, Viajero0, IdTaxi, Inicio, Final, espera}) ->                       %%Buscar el viaje que este en espera y cambiarlo a terminado
-                    case Viajero =:= Viajero0 of                                                    
+                fun({No, ViajeP, Viajero0, IdTaxi, Inicio, Final, State}) ->                       %%Buscar el viaje que este en State y cambiarlo a terminado
+                    case Viajero =:= Viajero0 andalso State =:= espera of                                                    
                         true-> {{No, ViajeP, Viajero0, IdTaxi, Inicio, Final, terminado}, true};
-                        false ->{ {No, ViajeP, Viajero0, IdTaxi, Inicio, Final, espera}, false}
+                        false ->{ {No, ViajeP, Viajero0, IdTaxi, Inicio, Final, State}, false}
                     end
                 end,
             {NewList, {_,ViajeP,_,_,_,_,_}, Count} = buscarViaje(TerminarPorViajero,  ListaViajes),         %%Obtener el PID de viaje 
@@ -257,19 +259,20 @@ eliminarTaxi(_, []) ->
 %se puede determinar que el acumulativo sea el elemento con la menor distancia entre 2 objetos
 
 
-obtenerTaxi(Posicion, ListaTaxis) ->
+obtenerTaxi(_, ListaTaxis) ->
     lists:foldl(
         fun({IdTaxi, PID}, Acc) ->
             % Envia mensaje de consulta al taxi
             PID ! {informacion},
             % mini funcion para esperar la respuesta del taxi
             Res = receive
-                {info, Estado, Ubicacion} ->
+                {info, Estado, _} ->
                     Estado
             after 1000 ->
                     no_responde
             end,
             % Si la respuesta es "disponible", se "acumula" en la respuesta
+            io:format("Taxi ~p. Estado: ~p~n", [IdTaxi, Res]),
             case Res of
                 disponible ->
                     IdTaxi;
@@ -292,7 +295,7 @@ buscarViaje(Pred, Viajes) ->
                 false->{[NewViaje|NewList], Acc, Count}
             end
         end,
-        {[], ind, 0},
+        {[], {a,a,a,a,a,a,a}, 0},
         Viajes
     ),
     NewViajesOrdered = lists:reverse(LIST),
